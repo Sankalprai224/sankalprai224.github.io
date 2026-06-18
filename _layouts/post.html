@@ -122,13 +122,13 @@ layout: default
       machineView.style.display = 'block';
       btnHuman.classList.remove('active');
       btnMachine.classList.add('active');
-      localStorage.setItem('viewMode', 'machine');
     } else {
       humanView.style.display   = '';
       machineView.style.display = 'none';
       btnHuman.classList.add('active');
       btnMachine.classList.remove('active');
-      localStorage.setItem('viewMode', 'human');
+      // Re-render charts — they need non-zero clientWidth
+      requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
     }
   }
 
@@ -262,9 +262,9 @@ layout: default
     return out.trim();
   }
 
-  /* ── restore saved mode on load ── */
+  /* ── always start in human mode — never restore machine from storage ── */
   document.addEventListener('DOMContentLoaded', () => {
-    if (localStorage.getItem('viewMode') === 'machine') setMode('machine');
+    localStorage.removeItem('viewMode');
   });
 </script>
 
@@ -342,49 +342,4 @@ layout: default
     });
   });
 </script>
-
-
-  <article class="post-article">
-  <header class="post-hero">
-    <h1>{{ page.title }}</h1>
-    <div class="post-meta">
-      <span class="author">By Sankalp</span> &bull; 
-      <span class="date">{{ page.date | date: "%B %d, %Y" }}</span> &bull; 
-      <span class="read-time">
-        {% assign words = content | number_of_words %}
-        {% assign read_time = words | divided_by: 200 | plus: 1 %}
-        {{ read_time }} min read
-      </span>
-    </div>
-  </header>
-
-  {% if page.series %}
-    <div class="series-navigation">
-      <p>This post is part of the <strong>{{ page.series }}</strong> series:</p>
-      <ol>
-        {% assign series_posts = site.posts | where: "series", page.series | sort: "date" %}
-        {% for series_post in series_posts %}
-          <li>
-            {% if series_post.url == page.url %}
-              <em>{{ series_post.title }}</em> (This post)
-            {% else %}
-              <a href="{{ site.baseurl }}{{ series_post.url }}">{{ series_post.title }}</a>
-            {% endif %}
-          </li>
-        {% endfor %}
-      </ol>
-    </div>
-  {% endif %}
-
-  <div class="mobile-toc-container">
-    <div class="toc-header">Table of Contents</div>
-    <nav class="toc-nav" id="mobile-toc"></nav>
-  </div>
-
-  <div class="post-content">
-    {{ content }}
-  </div>
-  </article>
-</div>
-
 
