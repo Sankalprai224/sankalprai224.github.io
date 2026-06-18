@@ -227,9 +227,21 @@ th {
   border-radius: 4px;
 }
 
+.mobile-toc-container {
+  display: block;
+  background: var(--code-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
 @media (min-width: 1024px) {
   .toc-sidebar {
     display: block;
+  }
+  .mobile-toc-container {
+    display: none;
   }
 }
 
@@ -305,10 +317,22 @@ th {
   margin: 3rem 0;
   padding: 2.5rem 1.5rem;
   background: var(--code-bg);
-  border: 1px solid var(--border-color);
+  border: 2px transparent solid;
+  background-clip: padding-box;
+  position: relative;
   border-radius: 12px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.05);
   overflow-x: hidden;
+}
+
+.arch-diagram::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  z-index: -1;
+  margin: -2px;
+  border-radius: inherit;
+  background: linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%);
 }
 
 [data-theme="dark"] .arch-diagram {
@@ -317,18 +341,19 @@ th {
 
 .arch-node {
   font-weight: 800;
-  color: var(--heading-color);
+  color: #fff;
   padding: 0.6rem 1.5rem;
-  background: var(--bg-color);
-  border: 2px dashed var(--border-color);
+  background: linear-gradient(45deg, #f09433, #dc2743, #bc1888);
+  border: none;
   border-radius: 20px;
   font-size: 0.95rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  box-shadow: 0 4px 15px rgba(220, 39, 67, 0.3);
 }
 
 .arch-arrow {
-  color: var(--link-color);
+  color: #dc2743;
   margin: 0.5rem 0;
   display: flex;
   flex-direction: column;
@@ -336,8 +361,8 @@ th {
 }
 
 .arch-arrow svg {
-  color: var(--link-color);
-  opacity: 0.8;
+  color: #dc2743;
+  opacity: 0.9;
 }
 
 .arch-arrow-label {
@@ -362,18 +387,34 @@ th {
 .arch-box {
   flex: 1;
   background: var(--bg-color);
-  border: 1px solid var(--border-color);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  position: relative;
   border-radius: 8px;
   padding: 1.2rem;
-  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), border-color 0.3s ease, box-shadow 0.3s ease;
-  position: relative;
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease;
   z-index: 2;
+}
+
+.arch-box::before {
+  content: '';
+  position: absolute;
+  top: 0; right: 0; bottom: 0; left: 0;
+  z-index: -1;
+  margin: -2px;
+  border-radius: inherit;
+  background: linear-gradient(45deg, #f09433, #dc2743, #bc1888);
+  opacity: 0.3;
+  transition: opacity 0.3s ease;
 }
 
 .arch-box:hover {
   transform: translateY(-5px) scale(1.02);
-  border-color: var(--link-color);
-  box-shadow: 0 8px 25px rgba(88, 166, 255, 0.15);
+  box-shadow: 0 8px 25px rgba(220, 39, 67, 0.2);
+}
+
+.arch-box:hover::before {
+  opacity: 1;
 }
 
 .arch-box-title {
@@ -410,15 +451,15 @@ th {
 .arch-branch-top {
   width: 2px;
   height: 15px;
-  background-color: var(--link-color);
-  opacity: 0.8;
+  background: linear-gradient(to bottom, #dc2743, #bc1888);
+  opacity: 0.9;
 }
 
 .arch-branch-horizontal {
   width: calc(100% - 4px);
   height: 2px;
-  background-color: var(--link-color);
-  opacity: 0.8;
+  background: #bc1888;
+  opacity: 0.9;
 }
 
 .arch-branch-verticals {
@@ -430,9 +471,9 @@ th {
 .arch-branch-line-left, .arch-branch-line-right {
   width: 2px;
   height: 20px;
-  background-color: var(--link-color);
+  background: #bc1888;
   position: relative;
-  opacity: 0.8;
+  opacity: 0.9;
 }
 
 .arch-arrow-head {
@@ -441,9 +482,35 @@ th {
   left: -4px;
   width: 10px;
   height: 10px;
-  border-right: 2px solid var(--link-color);
-  border-bottom: 2px solid var(--link-color);
+  border-right: 2px solid #bc1888;
+  border-bottom: 2px solid #bc1888;
   transform: rotate(45deg);
+}
+
+/* Skip Note / Deep Dive Styles */
+.skip-note {
+  margin: 2rem 0;
+  padding: 1.5rem;
+  background: rgba(220, 39, 67, 0.05);
+  border-left: 4px solid #dc2743;
+  border-radius: 0 8px 8px 0;
+}
+
+.skip-note-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #dc2743;
+  font-weight: 800;
+  margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+}
+
+.skip-note-title svg {
+  width: 16px;
+  height: 16px;
 }
 
 .arch-split-row {

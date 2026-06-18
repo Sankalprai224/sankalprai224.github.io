@@ -1,42 +1,42 @@
 ---
 layout: post
-title: "Building a BPE Tokenizer in Go: How I Got 80% of tiktoken's Speed Without a Single CGO Call"
+title: "building a fast bpe tokenizer in pure go"
 date: 2026-06-16 10:00:00 +0530
 slug: bpe-tokenizer-go-from-scratch
 ---
 
-I was working on a Go project that needed to tokenize text before feeding it into an LLM pipeline. Every option I found had the same problem. They either shelled out to Python, used CGO to wrap the Rust `tiktoken` library, or pulled in half a framework to do something conceptually simple. I didn't want a Python sidecar. I didn't want to fight CGO on a Linux ARM box at 2am. I wanted a pure Go tokenizer that I could ship as a single binary, understand completely, and eventually blame only myself for.
+i was working on a go project that needed to tokenize text before feeding it into an llm pipeline , every option i found had the same problem , they either shelled out to python , used cgo to wrap the rust tiktoken library , or pulled in half a framework to do something conceptually simple , i didnt want a python sidecar , i didnt want to fight cgo on a linux arm box at 2am , i wanted a pure go tokenizer that i could ship as a single binary , understand completely , and eventually blame only myself for
 
-So I built `tokr`: a Byte-Pair Encoding tokenizer in pure Go that hits **~9 MB/s throughput, ~5.3M tokens/sec on the hot path, and a 52-nanosecond cached response time**. That's roughly 80% of what OpenAI's `tiktoken` achieves in Rust. This post is the story of how that number came to be, what I got wrong first, and what the architecture actually looks like under the hood.
+so i built tokr , a byte-pair encoding tokenizer in pure go that hits **~9 mb/s throughput, ~5.3m tokens/sec on the hot path, and a 52-nanosecond cached response time** , thats roughly 80% of what openais tiktoken achieves in rust , this post is the story of how that number came to be , what i got wrong first , and what the architecture actually looks like under the hood
 
-> **URL slug:** `/posts/bpe-tokenizer-go-from-scratch`  
-> If you found this searching for "BPE tokenizer Go implementation" or "tiktoken alternative pure Go" then yes, you're in the right place.
-
----
-
-## Why BPE? A Sixty-Second Primer
-
-Why does any of this matter?
-
-Language models don't read words. They read *tokens*, which are chunks of text that sit somewhere between a character and a word. Byte-Pair Encoding (BPE) is the algorithm that decides what those chunks are. GPT-4 uses it. LLaMA uses it. It works like this:
-
-1. Start with a vocabulary of 256 individual bytes (every possible byte value, 0–255).
-2. Count every adjacent pair of tokens in your training corpus.
-3. Merge the most frequent pair into a new single token. Assign it the next available ID (starting at 256).
-4. Repeat until you reach your target vocabulary size.
-
-The result is a vocabulary that naturally captures common English subwords (`" the"`, `"ing"`, `" and"`), while still being able to represent literally anything, even binary data, because you always fall back to raw bytes.
-
-When you encode new text, you replay those merges in the order they were learned, always choosing the merge with the lowest rank (the one learned earliest) at each step. That's the whole algorithm. The hard part is doing it fast.
+> **url slug:** `/posts/bpe-tokenizer-go-from-scratch`  
+> if you found this searching for "bpe tokenizer go implementation" or "tiktoken alternative pure go" then yes , youre in the right place
 
 ---
 
-## The Architecture: Four Layers, One Binary
+## why bpe? a sixty-second primer
 
-Here's how `tokr` is structured:
+why does any of this matter
+
+language models dont read words , they read *tokens* , which are chunks of text that sit somewhere between a character and a word , byte-pair encoding (bpe) is the algorithm that decides what those chunks are , gpt-4 uses it , llama uses it , it works like this
+
+1. start with a vocabulary of 256 individual bytes (every possible byte value , 0–255)
+2. count every adjacent pair of tokens in your training corpus
+3. merge the most frequent pair into a new single token , assign it the next available id
+4. repeat until you reach your target vocabulary size
+
+the result is a vocabulary that naturally captures common english subwords (`" the"`, `"ing"`, `" and"`) , while still being able to represent literally anything , even binary data , because you always fall back to raw bytes
+
+when you encode new text , you replay those merges in the order they were learned , always choosing the merge with the lowest rank (the one learned earliest) at each step , thats the whole algorithm , the hard part is doing it fast
+
+---
+
+## the architecture: four layers, one binary
+
+heres how tokr is structured
 
 <div class="arch-diagram">
-  <div class="arch-node">Input Text</div>
+  <div class="arch-node">input text</div>
   
   <div class="arch-arrow">
     <svg width="24" height="30" viewBox="0 0 24 30"><path d="M12 0v28M5 21l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2"/></svg>
@@ -44,10 +44,10 @@ Here's how `tokr` is structured:
   
   <div class="arch-row">
     <div class="arch-box">
-      <div class="arch-box-title">Splitter Module</div>
-      <div class="arch-box-desc">GPTSplit (regexp2)<br>or FastSplit (custom scanner)</div>
+      <div class="arch-box-title">splitter module</div>
+      <div class="arch-box-desc">gptsplit (regexp2)<br>or fastsplit (custom scanner)</div>
     </div>
-    <div class="arch-note"><span style="margin-right:0.5rem">←</span> Pre-tokenization boundary enforcement</div>
+    <div class="arch-note"><span style="margin-right:0.5rem">←</span> pre-tokenization boundary enforcement</div>
   </div>
   
   <div class="arch-arrow">
@@ -57,10 +57,10 @@ Here's how `tokr` is structured:
   
   <div class="arch-row">
     <div class="arch-box">
-      <div class="arch-box-title">BPE Engine</div>
-      <div class="arch-box-desc">Cache check (O(1) RWMutex)<br>Rank-based merge loop</div>
+      <div class="arch-box-title">bpe engine</div>
+      <div class="arch-box-desc">cache check (o(1) rwmutex)<br>rank-based merge loop</div>
     </div>
-    <div class="arch-note"><span style="margin-right:0.5rem">←</span> runMergeLogic, in-place slice mutation</div>
+    <div class="arch-note"><span style="margin-right:0.5rem">←</span> runmergelogic, in-place slice mutation</div>
   </div>
   
   <div class="arch-arrow">
@@ -77,12 +77,12 @@ Here's how `tokr` is structured:
   
   <div class="arch-split-row">
     <div class="arch-box small-box">
-      <div class="arch-box-title">Single-threaded</div>
-      <div class="arch-box-desc">Encode()</div>
+      <div class="arch-box-title">single-threaded</div>
+      <div class="arch-box-desc">encode()</div>
     </div>
     <div class="arch-box small-box">
-      <div class="arch-box-title">Worker Pool</div>
-      <div class="arch-box-desc">ParallelEncode()<br><span style="font-size: 0.75rem; opacity: 0.8">(runtime.NumCPU workers,<br>buffered channels)</span></div>
+      <div class="arch-box-title">worker pool</div>
+      <div class="arch-box-desc">parallelencode()<br><span style="font-size: 0.75rem; opacity: 0.8">(runtime.numcpu workers,<br>buffered channels)</span></div>
     </div>
   </div>
   
@@ -92,242 +92,138 @@ Here's how `tokr` is structured:
   
   <div class="arch-row">
     <div class="arch-box" style="border-color: var(--link-color); background: rgba(88, 166, 255, 0.05);">
-      <div class="arch-box-title">HTTP Layer</div>
-      <div class="arch-box-desc">/encode  /decode<br>Smart routing: &lt;999KB → single, ≥999KB → pool</div>
+      <div class="arch-box-title">http layer</div>
+      <div class="arch-box-desc">/encode  /decode<br>smart routing: &lt;999kb → single, ≥999kb → pool</div>
     </div>
     <div class="arch-note"><span style="margin-right:0.5rem">←</span> net/http, no framework</div>
   </div>
 </div>
 
-Every layer has exactly one job. The splitter doesn't merge. The merge engine doesn't split. The HTTP layer doesn't know what a token is; it just routes.
+every layer has exactly one job , the splitter doesnt merge , the merge engine doesnt split , the http layer doesnt know what a token is , it just routes
 
 ---
 
-## Layer 1: The Splitter
+## the http api
 
-This was the first thing I got wrong conceptually. You can't just take a string like `"Hello world"`, convert it to bytes, and start merging. If you do, the merge algorithm will happily create a token that spans the space between `"Hello"` and `"world"`. Now `" wo"` is a single token in your vocabulary. That's not how GPT-4 does it, and it breaks cross-model compatibility.
+this is a feature it should not be at the last of the blog , tokr ships with a lightweight server using only net/http and no frameworks 
 
-The fix is pre-tokenization. Before BPE even sees the text, you split it into chunks at semantic boundaries. Merges are only allowed to happen *within* a chunk, never across them.
+you just send a post request to `/encode` with a json payload containing your text , and it returns the tokens , the token count , and the time taken in seconds , similarly you can hit `/decode` with an array of tokens to get the text back
 
-`tokr` has two splitters.
-
-### GPTSplit: Full Compatibility Mode
-
-```go
-const pattern = `'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+`
-var re = regexp2.MustCompile(pattern, regexp2.Compiled)
-```
-
-This is the exact regex GPT-4's tokenizer uses. I had to pull in `github.com/dlclark/regexp2` because Go's standard `regexp` package doesn't support Unicode category expressions like `\p{L}` (letter) and `\p{N}` (number). The `regexp2` library is a Go port of .NET's regex engine. It's powerful, correct, and notoriously allocation-heavy. I'll explain how I dealt with that later.
-
-### FastSplit: The Zero-Allocation Path
-
-For cases where you don't need 1:1 tiktoken compatibility, `FastSplit` is a hand-rolled Unicode scanner:
-
-```go
-func FastSplit(text string) []string {
-    runes := []rune(text)
-    // ... walks rune-by-rune using unicode.IsLetter, IsNumber, IsSpace
-    // Handles the "space-prefix" rule: " word" is one token, not " " + "word"
-}
-```
-
-I wrote this because `regexp2` on a 100KB input was allocating millions of times in benchmarks. `FastSplit` produces zero heap allocations during the scan itself. It just slices into the existing rune slice. It's about 3x faster than `GPTSplit` on raw throughput, at the cost of slight tokenization differences from the canonical GPT-4 output.
-
-The tradeoff is explicit here. `useGPT4 bool` is threaded through every public API call. You pick your tradeoff at the call site.
+the routing logic in `/encode` is a simple size gate , below 999kb the single-threaded cache-optimized path wins , above it the worker pool takes over , the model loads once at startup and stays in memory
 
 ---
 
-## Layer 2: The Merge Engine
+## layer 1: the splitter
 
-The core of the tokenizer is `runMergeLogic`. This is where the actual BPE encoding happens for a single pre-tokenized chunk:
+this was the first thing i got wrong conceptually , you cant just take a string like "hello world" , convert it to bytes , and start merging , if you do the merge algorithm will happily create a token that spans the space between "hello" and "world" , now " wo" is a single token in your vocabulary , thats not how gpt-4 does it , and it breaks cross-model compatibility
 
-```go
-func runMergeLogic(t *tokenizer, val []int) []int {
-    for {
-        if len(val) < 2 {
-            break
-        }
-        bestIdx := -1
-        minrank := math.MaxInt
+the fix is pre-tokenization , before bpe even sees the text , you split it into chunks at semantic boundaries , merges are only allowed to happen within a chunk , never across them
 
-        // Scan for the lowest-rank mergeable pair
-        for i := 0; i < len(val)-1; i++ {
-            p := pair{val[i], val[i+1]}
-            if rank, ok := t.merges[p]; ok {
-                if rank < minrank {
-                    minrank = rank
-                    bestIdx = i
-                }
-            }
-        }
-        if bestIdx == -1 {
-            break
-        }
+tokr has two splitters
 
-        // Merge in-place: overwrite left element, shift everything left
-        val[bestIdx] = minrank
-        copy(val[bestIdx+1:], val[bestIdx+2:])
-        val = val[:len(val)-1]
-    }
-    return val
-}
-```
+### gptsplit: full compatibility mode
 
-The key design decision here is in-place mutation with `copy`. Early versions of this function did the obvious thing: allocate a new slice every iteration, append to it. That's O(n) allocations per chunk, which turns into 18 million allocations on a 16MB corpus.
+this uses the exact regex gpt-4s tokenizer uses 
 
-The in-place approach overwrites `val[bestIdx]` with the merged token ID, then shifts the right half of the slice one position left using `copy`. The slice shrinks by one element per iteration. Zero heap allocations. No GC pressure on the hot path.
+<div class="skip-note">
+  <div class="skip-note-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> deep dive (feel free to skip)</div>
+  i had to pull in github.com/dlclark/regexp2 because gos standard regexp package doesnt support unicode category expressions like \p{L} (letter) and \p{N} (number) , the regexp2 library is a go port of .nets regex engine , its powerful , correct , and notoriously allocation-heavy , ill explain how i dealt with that later
+</div>
 
-The tradeoff is that the caller's slice is mutated. If you need the original, you have to copy it before calling. The `encodeCore` function handles this by keeping `ids` as a reusable working buffer.
+### fastsplit: the zero-allocation path
+
+for cases where you dont need 1:1 tiktoken compatibility , fastsplit is a hand-rolled unicode scanner
+
+i wrote this because regexp2 on a 100kb input was allocating millions of times in benchmarks , fastsplit produces zero heap allocations during the scan itself , it just slices into the existing rune slice , its about 3x faster than gptsplit on raw throughput , at the cost of slight tokenization differences from the canonical gpt-4 output
+
+the tradeoff is explicit here , `usegpt4` is threaded through every public api call , you pick your tradeoff at the call site
 
 ---
 
-## Layer 3: The Cache
+## layer 2: the merge engine
 
-Here's the benchmark that made this click for me:
+the core of the tokenizer is where the actual bpe encoding happens for a single pre-tokenized chunk
+
+the key design decision here is in-place mutation , early versions of this function did the obvious thing which is to allocate a new slice every iteration and append to it , thats o(n) allocations per chunk , which turns into 18 million allocations on a 16mb corpus
+
+the in-place approach overwrites the lowest rank mergeable pair with the merged token id , then shifts the right half of the slice one position left , the slice shrinks by one element per iteration , zero heap allocations , no gc pressure on the hot path
+
+the tradeoff is that the callers slice is mutated , if you need the original you have to copy it before calling
+
+---
+
+## layer 3: the cache
+
+heres the benchmark that made this click for me
 
 <div id="chart-latency" class="chart-container"></div>
 
-That's roughly a 47x latency difference between cold and hot path. Once a string has been tokenized once, all future calls return in ~52–220 nanoseconds with a single allocation.
+thats roughly a 47x latency difference between cold and hot path , once a string has been tokenized once , all future calls return in ~52–220 nanoseconds with a single allocation
 
-The cache lives on the tokenizer struct:
+the rwmutex is deliberate , concurrent reads dont block each other , only a write takes the exclusive lock , in a server handling many concurrent requests for common strings this matters a lot
 
-```go
-type tokenizer struct {
-    cache   map[string][]int
-    cacheMu sync.RWMutex
-    // ...
-}
-```
+eviction strategy is naive right now , when the cache exceeds 100,000 entries the whole map is replaced with a fresh empty one , its a full clear not lru , i know i will fix this later
 
-The `RWMutex` is deliberate. Concurrent reads (cache hits) don't block each other. Only a write (a cache miss that populates the cache) takes the exclusive lock. In a server handling many concurrent requests for common strings, this matters a lot.
-
-Eviction strategy is naive right now. When the cache exceeds 100,000 entries, the whole map is replaced with a fresh empty one. It's a full clear, not LRU. I know. I'll fix this later.
-
-One more thing about cache correctness. When a cache hit is returned, the code does this:
-
-```go
-return append([]int(nil), cached...)
-```
-
-That `append([]int(nil), ...)` is the defensive copy. Without it, a caller who mutates the returned slice would corrupt the cached value for every future caller. It costs one allocation. It's absolutely worth it. I considered removing it, then remembered that "zero allocations but occasionally wrong" is a lot worse than "one allocation, always correct."
+one more thing about cache correctness , when a cache hit is returned the code makes a defensive copy , without it a caller who mutates the returned slice would corrupt the cached value for every future caller , it costs one allocation , its absolutely worth it , i considered removing it then remembered that "zero allocations but occasionally wrong" is a lot worse than "one allocation, always correct"
 
 ---
 
-## Layer 4: The Worker Pool
+## layer 4: the worker pool
 
-For inputs over 1MB, `tokr` splits the text into ~1MB chunks and encodes them in parallel:
+for inputs over 1mb , tokr splits the text into ~1mb chunks and encodes them in parallel using a buffered jobs channel
 
-```go
-func (t *tokenizer) ParallelEncode(text string, useGPT4 bool) ([]int, error) {
-    // Split into chunks at natural boundaries (spaces/newlines)
-    // Feed into a buffered jobs channel
-    // Collect ordered results, reassemble
-}
-```
+the chunking is careful about two things
 
-The chunking is careful about two things:
+1. **natural boundaries:** the splitter scans backward from the 1mb mark to find a space or newline so words are never cut mid-token
+2. **utf-8 integrity:** if no natural boundary is found in the backward scan , theres a bitwise fallback to ensure we dont split mid-rune and hand regexp2 a malformed string
 
-1. **Natural boundaries:** The splitter scans backward from the 1MB mark to find a space or newline so words are never cut mid-token. A chunk boundary inside `"tokenizer"` would create two incomplete chunks that BPE would encode incorrectly.
-2. **UTF-8 integrity:** If no natural boundary is found in the backward scan, there's a bitwise fallback to ensure we don't split mid-rune and hand `regexp2` a malformed string that causes a panic.
-
-On a 16MB corpus with parallel encoding:
+on a 16mb corpus with parallel encoding:
 
 <div id="chart-scaling" class="chart-container"></div>
 
-The parallel speedup on raw (uncached) input is only about 13%. The bottleneck isn't CPU cores, it's GC pressure from 18 million allocations. The parallel path shines when chunks hit the cache on subsequent calls.
+the parallel speedup on raw uncached input is only about 13% , the bottleneck isnt cpu cores , its gc pressure from 18 million allocations , the parallel path shines when chunks hit the cache on subsequent calls
 
 ---
 
-## The Performance Story
+## the performance story
 
-This is the part worth slowing down on. The benchmark numbers only make sense if you understand the problem they're solving.
+this is the part worth slowing down on , the benchmark numbers only make sense if you understand the problem theyre solving
 
-### Raw Compute Hits a Wall
+### raw compute hits a wall
 
-`regexp2` is the cost of correctness. It's the only Go library I found that handles the Unicode category expressions that the GPT-4 pattern requires. But it allocates a lot.
+regexp2 is the cost of correctness , its the only go library i found that handles the unicode category expressions that the gpt-4 pattern requires , but it allocates a lot
 
-When you disable the cache and force the CPU to do raw BPE math with `regexp2` on a 16MB file, something ugly happens. The parallel workers saturate memory, the Go runtime spends most of its time on allocation locks, and adding more cores barely moves the needle. 
+when you disable the cache and force the cpu to do raw bpe math with regexp2 on a 16mb file , something ugly happens , the parallel workers saturate memory , the go runtime spends most of its time on allocation locks , and adding more cores barely moves the needle 
 
-18.6 million allocations. Going from 1 worker to 16 bought 13% more throughput. That's the GC wall. You can throw cores at the problem, but the allocator is the actual bottleneck, and it doesn't parallelize cleanly.
+18.6 million allocations , going from 1 worker to 16 bought 13% more throughput , thats the gc wall , you can throw cores at the problem but the allocator is the actual bottleneck and it doesnt parallelize cleanly
 
-### Cache at the Word Level
+### cache at the word level
 
-Natural language is repetitive. A server handling chat requests will see `" the"`, `" and"`, and `" of"` millions of times. Running `regexp2` and the BPE merge loop on `" the"` for the millionth time is pure waste.
+natural language is repetitive , a server handling chat requests will see " the" , " and" , and " of" millions of times , running regexp2 and the bpe merge loop on " the" for the millionth time is pure waste
 
-The architecture neutralizes this by caching at the word level via a `sync.RWMutex`-guarded map. Once `regexp2` extracts a chunk like `" the"` and the merge loop computes its token IDs, that result is stored. Every future occurrence skips the regex engine and the merge loop entirely. It's just a map lookup.
+the architecture neutralizes this by caching at the word level , once regexp2 extracts a chunk like " the" and the merge loop computes its token ids , that result is stored , every future occurrence skips the regex engine and the merge loop entirely , its just a map lookup
 
-Because real-world language is repetitive, the warm cache bypasses the GC wall entirely for the vast majority of requests. The aggregate result on a 25MB corpus looks like this:
+because real-world language is repetitive , the warm cache bypasses the gc wall entirely for the vast majority of requests , the aggregate result on a 25mb corpus looks like this
 
 <div id="chart-comparison" class="chart-container"></div>
 
-A quick note on why `tokr` shows higher tokens/sec but lower MB/s. These measure different things. MB/s is bytes of input text processed per second. Tokens/sec depends on average token length. `tokr`'s vocabulary produces slightly shorter average tokens on this corpus, so more tokens are generated per byte. Both numbers are real; they just answer different questions.
+a quick note on why tokr shows higher tokens/sec but lower mb/s , these measure different things , mb/s is bytes of input text processed per second , tokens/sec depends on average token length , tokrs vocabulary produces slightly shorter average tokens on this corpus so more tokens are generated per byte
 
 ---
 
-## What I Got Wrong
+## what i got wrong
 
-If you're evaluating `tokr` for production, you need to know where it breaks.
+if youre evaluating tokr for production , you need to know where it breaks
 
-**The `sync.Pool` gap in inference:** I added `sync.Pool` to the tokenizer struct to reuse `[]int` buffers. I wired it into the training `merger()` function. I forgot to wire it into the inference hot path. `encodeCore` still allocates fresh slices on every call. The fix is to pass a pooled buffer into `runMergeLogic` as an explicit workspace parameter and return it to the pool after use.
+**the sync.pool gap in inference:** i added sync.pool to the tokenizer struct to reuse buffers , i wired it into the training function , i forgot to wire it into the inference hot path , encodecore still allocates fresh slices on every call , the fix is to pass a pooled buffer as an explicit workspace parameter and return it to the pool after use
 
-**The merge loop's O(N²) worst case:** The current `runMergeLogic` scans the token array linearly on every iteration to find the lowest-rank pair. For standard English words averaging 5–15 characters, this is effectively O(N) and fast. But feed it a pathological input, like a 10,000-character base64 string that the regex matches as a single chunk, and the loop degrades to O(N²). It burns CPU until the word finishes. The proper fix is replacing the linear scan with a doubly-linked list paired with a priority queue.
+**the merge loops o(n²) worst case:** the current merge logic scans the token array linearly on every iteration to find the lowest-rank pair , for standard english words averaging 5–15 characters this is effectively o(n) and fast , but feed it a pathological input like a 10000-character base64 string that the regex matches as a single chunk , and the loop degrades to o(n²) , it burns cpu until the word finishes , the proper fix is replacing the linear scan with a doubly-linked list paired with a priority queue
 
-**Unbounded cache growth:** The word cache has no eviction policy beyond a full-clear at 100,000 entries. On a long-running server processing diverse inputs, the cache will grow toward OOM before hitting the limit, then drop all warm entries at once. The right fix is a concurrent LRU cache with a fixed entry cap.
+**unbounded cache growth:** the word cache has no eviction policy beyond a full-clear at 100,000 entries , on a long-running server processing diverse inputs the cache will grow toward oom before hitting the limit , then drop all warm entries at once , the right fix is a concurrent lru cache with a fixed entry cap
 
-**Static chunk size in the worker pool:** `ParallelEncode` uses a hardcoded 1MB chunk size. On a 16-core machine processing a 1.2MB file, only 2 cores get work. 14 sit idle. The chunk size should be derived dynamically based on available cores.
+**static chunk size in the worker pool:** parallelencode uses a hardcoded 1mb chunk size , on a 16-core machine processing a 1.2mb file only 2 cores get work , 14 sit idle , the chunk size should be derived dynamically based on available cores
 
-**HTTP server timeouts:** The current `net/http` server uses default configuration, which means no read, write, or idle timeouts. A Slowloris attack will exhaust the goroutine pool immediately. 
-
----
-
-## The HTTP API
-
-`tokr` ships with a lightweight server (`net/http` only, no frameworks):
-
-```
-POST /encode    { "text": "..." }
-               → { "tokens": [...], "count": N, "time_seconds": 0.000052 }
-
-POST /decode    { "tokens": [...] }
-               → { "text": "..." }
-```
-
-The routing logic in `/encode` is a simple size gate. Below 999KB, the single-threaded cache-optimized path wins. Above it, the worker pool takes over. The model loads once at startup and stays in memory.
-
----
-
-## FAQ
-
-**Can I use tokr as a drop-in replacement for tiktoken?**
-
-For encoding/decoding with a vocabulary trained on the same corpus, yes. The token IDs will match if you use the same BPE merge file. If you need exact GPT-4 tokenization (the `cl100k_base` vocab), you'd need to load that specific `.model` file and set `useGPT4=true`. 
-
-**Why not just use cgo to wrap tiktoken's Rust library?**
-
-CGO introduces real operational pain. Cross-compilation breaks, Docker images need the host's C toolchain, and debugging memory issues across the Go/C boundary is miserable. A pure Go binary deploys everywhere `go build` runs. That was the whole point.
-
-**How does the cache handle concurrent writes?**
-
-`cacheMu sync.RWMutex` guards the cache map. Reads (cache hits) take a read lock, so they don't block each other. A write (populating a new cache entry) takes an exclusive lock. This means 100 goroutines can concurrently hit the cache for different already-cached strings without any contention.
-
-**What happens if two goroutines encode the same string simultaneously, and neither finds it in cache?**
-
-Both will compute the tokens independently and the second one to finish will overwrite the first in the cache. This is a known benign race. The computed result is deterministic, so the "duplicate work" scenario is safe. 
-
-**Is the 5.3M tokens/sec number reproducible?**
-
-On an AMD Ryzen 5 7530U with a 25MB corpus and `useGPT4=true` (full `regexp2` path), yes. On a machine with more cores, `ParallelEncode` will scale because the worker pool uses `runtime.NumCPU()`. 
-
-**What's next for tokr?**
-
-Four concrete things in priority order: 
-1. O(N log N) merge loop via doubly-linked list and priority queue.
-2. `sync.Pool` integration in `encodeCore` to bring inference allocs down.
-3. Concurrent LRU cache replacing the full-clear eviction.
-4. Dynamic chunk sizing in `ParallelEncode` based on core count. 
-
-The HTTP layer also needs proper timeouts before it goes anywhere public-facing.
+**http server timeouts:** the current net/http server uses default configuration , which means no read write or idle timeouts , a slowloris attack will exhaust the goroutine pool immediately 
 
 <script src="{{ '/assets/js/charts.js' | relative_url }}"></script>
 <script>

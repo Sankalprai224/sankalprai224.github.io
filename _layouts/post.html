@@ -40,6 +40,11 @@ layout: default
     </div>
   {% endif %}
 
+  <div class="mobile-toc-container">
+    <div class="toc-header">Table of Contents</div>
+    <nav class="toc-nav" id="mobile-toc"></nav>
+  </div>
+
   <div class="post-content">
     {{ content }}
   </div>
@@ -51,9 +56,13 @@ layout: default
     const content = document.querySelector('.post-content');
     const headings = content.querySelectorAll('h2, h3');
     const toc = document.getElementById('toc');
+    const mobileToc = document.getElementById('mobile-toc');
     
     if (headings.length === 0) {
-      document.querySelector('.toc-sidebar').style.display = 'none';
+      const sidebar = document.querySelector('.toc-sidebar');
+      if (sidebar) sidebar.style.display = 'none';
+      const mobileContainer = document.querySelector('.mobile-toc-container');
+      if (mobileContainer) mobileContainer.style.display = 'none';
       return;
     }
     
@@ -76,7 +85,8 @@ layout: default
       list.appendChild(li);
     });
     
-    toc.appendChild(list);
+    if (toc) toc.appendChild(list.cloneNode(true));
+    if (mobileToc) mobileToc.appendChild(list.cloneNode(true));
     
     // Intersection Observer for active state
     let currentId = '';
